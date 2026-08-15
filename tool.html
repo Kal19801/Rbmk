@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>RBMK-1000 堆芯布局交互绘制工具</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
+        
+        /* 允许全局页面自由滚动与缩放，最小宽度设为内容宽度，防止缩放截断 */
+        html, body { 
+            width: 100%; 
+            min-height: 100%; 
+            overflow: auto; 
+            background: #f4f6f8; 
+            color: #333; 
+            touch-action: pan-x pan-y pinch-zoom;
+        }
+        
+        body { 
+            padding: 15px 15px 50px 15px; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: flex-start; /* 防止左侧溢出被裁剪 */
+            min-width: fit-content;
+        }
+
+        h1 { margin-bottom: 12px; font-size: 20px; width: 100%; text-align: center; }
+        
+        /* 容器：右侧增加 350px 大余量，确保移动到最右侧时，最左侧能完全露出 */
+        .container { 
+            display: flex; 
+            gap: 20px; 
+            width: fit-content;
+            justify-content: flex-start; /* 关键：固定从左侧起始，防止负坐标裁剪 */
+            padding-left: 10px;
+            padding-right: 350px; /* 加大右侧滑动余量 */
+        }
+        
+        /* 侧边栏控制面板 */
+        .sidebar { 
+            width: 280px; 
+            background: #fff; 
+            padding: 15px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1); 
+            display: flex; 
+            flex-direction: column; 
+            gap: 12px; 
+            height: fit-content; 
+            flex-shrink: 0; 
+            position: sticky;
+            left: 10px; /* 滑动时侧边栏保持固定方便操作 */
+            z-index: 10;
+        }
+
+        .palette { display: flex; flex-direction: column; gap: 6px; }
+        .tool-btn { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 2px solid #ddd; border-radius: 6px; background: #fff; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.15s; }
+        .tool-btn:hover { border-color: #aaa; background: #f9f9f9; }
+        .tool-btn.active { border-color: #007bff; background: #eef6ff; }
+        
+        .color-badge { width: 18px; height: 18px; border-radius: 3px; border: 1px solid #888; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; flex-shrink: 0; }
+        
+        .actions { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+        .action-btn { padding: 9px; border: none; border-radius: 6px; background: #007bff; color: white; font-weight: bold; cursor: pointer; text-align: center; font-size: 13px; }
+        .action-btn:hover { background: #0056b3; }
+        .action-btn.secondary { background: #6c757d; }
+        .action-btn.secondary:hover { background: #545b62; }
+
+        .info-panel { font-size: 12px; line-height: 1.6; color: #555; background: #f8f9fa; padding: 10px; border-radius: 6px; border: 1px solid #e9ecef; }
+        
+        /* 网格画布区：左右增加充裕Padding余量 */
+        .grid-container { 
+            background: #fff; 
+            padding: 20px 40px 20px 30px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1); 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            width: fit-content;
+            flex-shrink: 0;
+            touch-action: pan-x pan-y pinch-zoom;
+        }
+        
+        .hover-info { margin-bottom: 8px; font-size: 13px; font-weight: bold; color: #007bff; height: 18px; text-align: center; }
+        
+        /* 58x58 网格 */
+        .grid { 
+            display: grid; 
+            grid-template-columns: 26px repeat(56, 16px) 26px; 
+            grid-template-rows: 20px repeat(56, 16px) 20px; 
+            gap: 1px; 
+            background: #999; 
+            border: 1px solid #777; 
+            padding: 1px;
+            user-select: none; 
+            width: fit-content;
+            touch-action: pan-x pan-y pinch-zoom;
+        }
+        
+        .cell { background: #fff; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold; cursor: pointer; width: 100%; height: 100%; }
+        
+        .cell.axis { background: #e9ecef; font-size: 9px; font-weight: bold; color: #495057; cursor: default; }
+        .cell.outside { background: #272727; cursor: not-allowed; }
+        
+        /* 图案与颜色定义 */
+        .cell.Fuel_channel { background: #ffffff; }
+        .cell.RR_column::after { content: "•"; font-size: 15px; color: #000; }
+        .cell.RRC_channel { background: #ffffff; }
+        .cell.RRC_channel::after { content: "⚙"; font-size: 14px; color: #000; }
+        .cell.CPS_FASR { background: #E36D0D; color: #000; }
+        .cell.CPS_FASR::after { content: "•"; font-size: 17px; }
+        .cell.CPS_SAR { background: #00A94C; color: #000; }
+        .cell.CPS_SAR::after { content: "×"; font-size: 10px; }
+        .cell.CPS_MCR1 { background: #FFC100; color: #000; }
+        .cell.CPS_MCR1::after { content: "o"; font-size: 9px; }
+        .cell.CPS_MCR2 { background: #538FD7; color: #fff; }
+        .cell.CPS_MCR2::after { content: "-"; font-size: 12px; font-weight: bold; }
+        .cell.CPS_PDMS_A { background: #e0e0e0; }
+        .cell.CPS_PDMS_A::after { content: "◆"; font-size: 9px; color: #007bff; }
+        .cell.CPS_Fission_Chamber { background: #e0e0e0; }
+        .cell.CPS_Fission_Chamber::after { content: "▲"; font-size: 8px; color: #ff5722; }
+    </style>
+</head>
+<body>
+
+    <h1>RBMK-1000 堆芯布局交互绘制工具</h1>
+
+    <div class="container">
+        <!-- 工具面板 (支持 sticky 固定) -->
+        <div class="sidebar">
+            <h3>选择画笔类型</h3>
+            <div class="palette">
+                <button class="tool-btn active" data-type="Fuel_channel">
+                    <span class="color-badge" style="background:#fff;"></span> 燃料通道 (FC)
+                </button>
+                <button class="tool-btn" data-type="CPS_FASR">
+                    <span class="color-badge" style="background:#E36D0D;font-size:17px;">•</span> FASR 快控棒 (橙)
+                </button>
+                <button class="tool-btn" data-type="CPS_SAR">
+                    <span class="color-badge" style="background:#00A94C;">×</span> SAR 短吸收棒 (绿)
+                </button>
+                <button class="tool-btn" data-type="CPS_MCR1">
+                    <span class="color-badge" style="background:#FFC100;">o</span> MCR1 (2091型) (黄)
+                </button>
+                <button class="tool-btn" data-type="CPS_MCR2">
+                    <span class="color-badge" style="background:#538FD7;color:#fff;">-</span> MCR2 (2477型) (蓝)
+                </button>
+                <button class="tool-btn" data-type="CPS_PDMS_A">
+                    <span class="color-badge" style="background:#e0e0e0;color:#007bff;">◆</span> PDMS-A 传感器
+                </button>
+                <button class="tool-btn" data-type="CPS_Fission_Chamber">
+                    <span class="color-badge" style="background:#e0e0e0;color:#ff5722;">▲</span> 裂变室传感器
+                </button>
+                <button class="tool-btn" data-type="RR_column">
+                    <span class="color-badge" style="background:#EAEAEA;font-size:15px;">•</span> 石墨反射列 (RR)
+                </button>
+                <button class="tool-btn" data-type="RRC_channel">
+                    <span class="color-badge" style="background:#fff;font-size:14px;">⚙</span> 反射层冷却通道 (RRC)
+                </button>
+                <button class="tool-btn" data-type="outside">
+                    <span class="color-badge" style="background:#272727;"></span> 堆芯外 / 空格
+                </button>
+            </div>
+
+            <div class="info-panel">
+                <div>堆芯活动通道数: <span id="activeCount" style="font-weight:bold;color:#007bff;">0</span></div>
+                <div>提示：按住页面空白处或坐标数字可自由平移与缩放画面。</div>
+            </div>
+
+            <div class="actions">
+                <button class="action-btn" id="exportBtn">导出 JSON 文件</button>
+                <button class="action-btn secondary" id="resetBtn">重置为初始填充布局</button>
+                <input type="file" id="importInput" accept=".json" style="display:none;">
+                <button class="action-btn secondary" id="importBtn">导入 JSON 继续编辑</button>
+                <button class="action-btn secondary" onclick="location.href='../index.html'">返回</button>
+            </div>
+        </div>
+
+        <!-- 画布 -->
+        <div class="grid-container">
+            <div class="hover-info" id="hoverInfo">当前悬停位置: -</div>
+            <div class="grid" id="grid"></div>
+        </div>
+    </div>
+
+    <script>
+        // 坐标轴数据
+        const columns = ["51", "52", "53", "54"].concat(Array.from({length: 48}, (_, i) => String(i + 1).padStart(2, '0'))).concat(["55", "56", "57", "58"]);
+        const rows = ["58", "57", "56", "55"].concat(Array.from({length: 48}, (_, i) => String(48 - i).padStart(2, '0'))).concat(["54", "53", "52", "51"]);
+
+        // RRC 轮廓边界数据
+        const initialChannels = [
+            {"row":"58","grid_y":0,"grid_x":23,"channel_type":"RRC_channel"},{"row":"58","grid_y":0,"grid_x":24,"channel_type":"RRC_channel"},{"row":"58","grid_y":0,"grid_x":25,"channel_type":"RRC_channel"},{"row":"58","grid_y":0,"grid_x":26,"channel_type":"RRC_channel"},{"row":"58","grid_y":0,"grid_x":27,"channel_type":"RRC_channel"},{"row":"58","grid_y":0,"grid_x":28,"channel_type":"RRC_channel"},{"row":"58","grid_y":0,"grid_x":29,"channel_type":"RRC_channel"},{"row":"58","grid_y":0,"grid_x":30,"channel_type":"RRC_channel"},{"row":"58","grid_y":0,"grid_x":31,"channel_type":"RRC_channel"},{"row":"58","grid_y":0,"grid_x":32,"channel_type":"RRC_channel"},
+            {"row":"57","grid_y":1,"grid_x":18,"channel_type":"RRC_channel"},{"row":"57","grid_y":1,"grid_x":19,"channel_type":"RRC_channel"},{"row":"57","grid_y":1,"grid_x":20,"channel_type":"RRC_channel"},{"row":"57","grid_y":1,"grid_x":21,"channel_type":"RRC_channel"},{"row":"57","grid_y":1,"grid_x":22,"channel_type":"RRC_channel"},{"row":"57","grid_y":1,"grid_x":33,"channel_type":"RRC_channel"},{"row":"57","grid_y":1,"grid_x":34,"channel_type":"RRC_channel"},{"row":"57","grid_y":1,"grid_x":35,"channel_type":"RRC_channel"},{"row":"57","grid_y":1,"grid_x":36,"channel_type":"RRC_channel"},{"row":"57","grid_y":1,"grid_x":37,"channel_type":"RRC_channel"},
+            {"row":"56","grid_y":2,"grid_x":16,"channel_type":"RRC_channel"},{"row":"56","grid_y":2,"grid_x":17,"channel_type":"RRC_channel"},{"row":"56","grid_y":2,"grid_x":38,"channel_type":"RRC_channel"},{"row":"56","grid_y":2,"grid_x":39,"channel_type":"RRC_channel"},
+            {"row":"55","grid_y":3,"grid_x":14,"channel_type":"RRC_channel"},{"row":"55","grid_y":3,"grid_x":15,"channel_type":"RRC_channel"},{"row":"55","grid_y":3,"grid_x":40,"channel_type":"RRC_channel"},{"row":"55","grid_y":3,"grid_x":41,"channel_type":"RRC_channel"},
+            {"row":"48","grid_y":4,"grid_x":12,"channel_type":"RRC_channel"},{"row":"48","grid_y":4,"grid_x":13,"channel_type":"RRC_channel"},{"row":"48","grid_y":4,"grid_x":42,"channel_type":"RRC_channel"},{"row":"48","grid_y":4,"grid_x":43,"channel_type":"RRC_channel"},
+            {"row":"47","grid_y":5,"grid_x":11,"channel_type":"RRC_channel"},{"row":"47","grid_y":5,"grid_x":44,"channel_type":"RRC_channel"},
+            {"row":"46","grid_y":6,"grid_x":10,"channel_type":"RRC_channel"},{"row":"46","grid_y":6,"grid_x":45,"channel_type":"RRC_channel"},
+            {"row":"45","grid_y":7,"grid_x":9,"channel_type":"RRC_channel"},{"row":"45","grid_y":7,"grid_x":46,"channel_type":"RRC_channel"},
+            {"row":"44","grid_y":8,"grid_x":8,"channel_type":"RRC_channel"},{"row":"44","grid_y":8,"grid_x":47,"channel_type":"RRC_channel"},
+            {"row":"43","grid_y":9,"grid_x":7,"channel_type":"RRC_channel"},{"row":"43","grid_y":9,"grid_x":48,"channel_type":"RRC_channel"},
+            {"row":"42","grid_y":10,"grid_x":6,"channel_type":"RRC_channel"},{"row":"42","grid_y":10,"grid_x":49,"channel_type":"RRC_channel"},
+            {"row":"41","grid_y":11,"grid_x":5,"channel_type":"RRC_channel"},{"row":"41","grid_y":11,"grid_x":50,"channel_type":"RRC_channel"},
+            {"row":"40","grid_y":12,"grid_x":4,"channel_type":"RRC_channel"},{"row":"40","grid_y":12,"grid_x":51,"channel_type":"RRC_channel"},
+            {"row":"39","grid_y":13,"grid_x":4,"channel_type":"RRC_channel"},{"row":"39","grid_y":13,"grid_x":51,"channel_type":"RRC_channel"},
+            {"row":"38","grid_y":14,"grid_x":3,"channel_type":"RRC_channel"},{"row":"38","grid_y":14,"grid_x":52,"channel_type":"RRC_channel"},
+            {"row":"37","grid_y":15,"grid_x":3,"channel_type":"RRC_channel"},{"row":"37","grid_y":15,"grid_x":52,"channel_type":"RRC_channel"},
+            {"row":"36","grid_y":16,"grid_x":2,"channel_type":"RRC_channel"},{"row":"36","grid_y":16,"grid_x":53,"channel_type":"RRC_channel"},
+            {"row":"35","grid_y":17,"grid_x":2,"channel_type":"RRC_channel"},{"row":"35","grid_y":17,"grid_x":53,"channel_type":"RRC_channel"},
+            {"row":"34","grid_y":18,"grid_x":1,"channel_type":"RRC_channel"},{"row":"34","grid_y":18,"grid_x":54,"channel_type":"RRC_channel"},
+            {"row":"33","grid_y":19,"grid_x":1,"channel_type":"RRC_channel"},{"row":"33","grid_y":19,"grid_x":54,"channel_type":"RRC_channel"},
+            {"row":"32","grid_y":20,"grid_x":1,"channel_type":"RRC_channel"},{"row":"32","grid_y":20,"grid_x":54,"channel_type":"RRC_channel"},
+            {"row":"31","grid_y":21,"grid_x":1,"channel_type":"RRC_channel"},{"row":"31","grid_y":21,"grid_x":54,"channel_type":"RRC_channel"},
+            {"row":"30","grid_y":22,"grid_x":1,"channel_type":"RRC_channel"},{"row":"30","grid_y":22,"grid_x":54,"channel_type":"RRC_channel"},
+            {"row":"29","grid_y":23,"grid_x":0,"channel_type":"RRC_channel"},{"row":"29","grid_y":23,"grid_x":55,"channel_type":"RRC_channel"},
+            {"row":"28","grid_y":24,"grid_x":0,"channel_type":"RRC_channel"},{"row":"28","grid_y":24,"grid_x":55,"channel_type":"RRC_channel"},
+            {"row":"27","grid_y":25,"grid_x":0,"channel_type":"RRC_channel"},{"row":"27","grid_y":25,"grid_x":55,"channel_type":"RRC_channel"},
+            {"row":"26","grid_y":26,"grid_x":0,"channel_type":"RRC_channel"},{"row":"26","grid_y":26,"grid_x":55,"channel_type":"RRC_channel"},
+            {"row":"25","grid_y":27,"grid_x":0,"channel_type":"RRC_channel"},{"row":"25","grid_y":27,"grid_x":55,"channel_type":"RRC_channel"},
+            {"row":"24","grid_y":28,"grid_x":0,"channel_type":"RRC_channel"},{"row":"24","grid_y":28,"grid_x":55,"channel_type":"RRC_channel"},
+            {"row":"23","grid_y":29,"grid_x":0,"channel_type":"RRC_channel"},{"row":"23","grid_y":29,"grid_x":55,"channel_type":"RRC_channel"},
+            {"row":"22","grid_y":30,"grid_x":0,"channel_type":"RRC_channel"},{"row":"22","grid_y":30,"grid_x":55,"channel_type":"RRC_channel"},
+            {"row":"21","grid_y":31,"grid_x":0,"channel_type":"RRC_channel"},{"row":"21","grid_y":31,"grid_x":55,"channel_type":"RRC_channel"},
+            {"row":"20","grid_y":32,"grid_x":0,"channel_type":"RRC_channel"},{"row":"20","grid_y":32,"grid_x":55,"channel_type":"RRC_channel"},
+            {"row":"19","grid_y":33,"grid_x":1,"channel_type":"RRC_channel"},{"row":"19","grid_y":33,"grid_x":54,"channel_type":"RRC_channel"},
+            {"row":"18","grid_y":34,"grid_x":1,"channel_type":"RRC_channel"},{"row":"18","grid_y":34,"grid_x":54,"channel_type":"RRC_channel"},
+            {"row":"17","grid_y":35,"grid_x":1,"channel_type":"RRC_channel"},{"row":"17","grid_y":35,"grid_x":54,"channel_type":"RRC_channel"},
+            {"row":"16","grid_y":36,"grid_x":1,"channel_type":"RRC_channel"},{"row":"16","grid_y":36,"grid_x":54,"channel_type":"RRC_channel"},
+            {"row":"15","grid_y":37,"grid_x":1,"channel_type":"RRC_channel"},{"row":"15","grid_y":37,"grid_x":54,"channel_type":"RRC_channel"},
+            {"row":"14","grid_y":38,"grid_x":2,"channel_type":"RRC_channel"},{"row":"14","grid_y":38,"grid_x":53,"channel_type":"RRC_channel"},
+            {"row":"13","grid_y":39,"grid_x":2,"channel_type":"RRC_channel"},{"row":"13","grid_y":39,"grid_x":53,"channel_type":"RRC_channel"},
+            {"row":"12","grid_y":40,"grid_x":3,"channel_type":"RRC_channel"},{"row":"12","grid_y":40,"grid_x":52,"channel_type":"RRC_channel"},
+            {"row":"11","grid_y":41,"grid_x":3,"channel_type":"RRC_channel"},{"row":"11","grid_y":41,"grid_x":52,"channel_type":"RRC_channel"},
+            {"row":"10","grid_y":42,"grid_x":4,"channel_type":"RRC_channel"},{"row":"10","grid_y":42,"grid_x":51,"channel_type":"RRC_channel"},
+            {"row":"09","grid_y":43,"grid_x":4,"channel_type":"RRC_channel"},{"row":"09","grid_y":43,"grid_x":51,"channel_type":"RRC_channel"},
+            {"row":"08","grid_y":44,"grid_x":5,"channel_type":"RRC_channel"},{"row":"08","grid_y":44,"grid_x":50,"channel_type":"RRC_channel"},
+            {"row":"07","grid_y":45,"grid_x":6,"channel_type":"RRC_channel"},{"row":"07","grid_y":45,"grid_x":49,"channel_type":"RRC_channel"},
+            {"row":"06","grid_y":46,"grid_x":7,"channel_type":"RRC_channel"},{"row":"06","grid_y":46,"grid_x":48,"channel_type":"RRC_channel"},
+            {"row":"05","grid_y":47,"grid_x":8,"channel_type":"RRC_channel"},{"row":"05","grid_y":47,"grid_x":47,"channel_type":"RRC_channel"},
+            {"row":"04","grid_y":48,"grid_x":9,"channel_type":"RRC_channel"},{"row":"04","grid_y":48,"grid_x":46,"channel_type":"RRC_channel"},
+            {"row":"03","grid_y":49,"grid_x":10,"channel_type":"RRC_channel"},{"row":"03","grid_y":49,"grid_x":45,"channel_type":"RRC_channel"},
+            {"row":"02","grid_y":50,"grid_x":11,"channel_type":"RRC_channel"},{"row":"02","grid_y":50,"grid_x":44,"channel_type":"RRC_channel"},
+            {"row":"01","grid_y":51,"grid_x":12,"channel_type":"RRC_channel"},{"row":"01","grid_y":51,"grid_x":13,"channel_type":"RRC_channel"},{"row":"01","grid_y":51,"grid_x":42,"channel_type":"RRC_channel"},{"row":"01","grid_y":51,"grid_x":43,"channel_type":"RRC_channel"},
+            {"row":"54","grid_y":52,"grid_x":14,"channel_type":"RRC_channel"},{"row":"54","grid_y":52,"grid_x":15,"channel_type":"RRC_channel"},{"row":"54","grid_y":52,"grid_x":40,"channel_type":"RRC_channel"},{"row":"54","grid_y":52,"grid_x":41,"channel_type":"RRC_channel"},
+            {"row":"53","grid_y":53,"grid_x":16,"channel_type":"RRC_channel"},{"row":"53","grid_y":53,"grid_x":17,"channel_type":"RRC_channel"},{"row":"53","grid_y":53,"grid_x":38,"channel_type":"RRC_channel"},{"row":"53","grid_y":53,"grid_x":39,"channel_type":"RRC_channel"},
+            {"row":"52","grid_y":54,"grid_x":18,"channel_type":"RRC_channel"},{"row":"52","grid_y":54,"grid_x":19,"channel_type":"RRC_channel"},{"row":"52","grid_y":54,"grid_x":20,"channel_type":"RRC_channel"},{"row":"52","grid_y":54,"grid_x":21,"channel_type":"RRC_channel"},{"row":"52","grid_y":54,"grid_x":22,"channel_type":"RRC_channel"},{"row":"52","grid_y":54,"grid_x":33,"channel_type":"RRC_channel"},{"row":"52","grid_y":54,"grid_x":34,"channel_type":"RRC_channel"},{"row":"52","grid_y":54,"grid_x":35,"channel_type":"RRC_channel"},{"row":"52","grid_y":54,"grid_x":36,"channel_type":"RRC_channel"},{"row":"52","grid_y":54,"grid_x":37,"channel_type":"RRC_channel"},
+            {"row":"51","grid_y":55,"grid_x":23,"channel_type":"RRC_channel"},{"row":"51","grid_y":55,"grid_x":24,"channel_type":"RRC_channel"},{"row":"51","grid_y":55,"grid_x":25,"channel_type":"RRC_channel"},{"row":"51","grid_y":55,"grid_x":26,"channel_type":"RRC_channel"},{"row":"51","grid_y":55,"grid_x":27,"channel_type":"RRC_channel"},{"row":"51","grid_y":55,"grid_x":28,"channel_type":"RRC_channel"},{"row":"51","grid_y":55,"grid_x":29,"channel_type":"RRC_channel"},{"row":"51","grid_y":55,"grid_x":30,"channel_type":"RRC_channel"},{"row":"51","grid_y":55,"grid_x":31,"channel_type":"RRC_channel"},{"row":"51","grid_y":55,"grid_x":32,"channel_type":"RRC_channel"}
+        ];
+
+        let activeTool = "Fuel_channel";
+        let isMouseDown = false;
+        const gridData = Array(56).fill(null).map(() => Array(56).fill("outside"));
+
+        function initGridData() {
+            for (let r = 0; r < 56; r++) {
+                gridData[r].fill("outside");
+            }
+            
+            // 标记 RRC 边界
+            initialChannels.forEach(item => {
+                gridData[item.grid_y][item.grid_x] = item.channel_type;
+            });
+
+            // 填充内部为 Fuel_channel
+            for (let r = 0; r < 56; r++) {
+                let minX = -1, maxX = -1;
+                for (let c = 0; c < 56; c++) {
+                    if (gridData[r][c] === "RRC_channel") {
+                        if (minX === -1) minX = c;
+                        maxX = c;
+                    }
+                }
+                if (minX !== -1 && maxX !== -1) {
+                    for (let c = minX; c <= maxX; c++) {
+                        if (gridData[r][c] === "outside") {
+                            gridData[r][c] = "Fuel_channel";
+                        }
+                    }
+                }
+            }
+        }
+
+        initGridData();
+
+        const gridEl = document.getElementById("grid");
+        const hoverInfoEl = document.getElementById("hoverInfo");
+        const activeCountEl = document.getElementById("activeCount");
+
+        function renderGrid() {
+            gridEl.innerHTML = "";
+            
+            // 1. 顶标头行 (Top Axis)
+            gridEl.appendChild(createAxisCell(""));
+            columns.forEach(col => gridEl.appendChild(createAxisCell(col)));
+            gridEl.appendChild(createAxisCell(""));
+
+            // 2. 中间 56 行内容
+            for (let r = 0; r < 56; r++) {
+                gridEl.appendChild(createAxisCell(rows[r])); // 左标头
+
+                for (let c = 0; c < 56; c++) {
+                    const cell = document.createElement("div");
+                    const type = gridData[r][c];
+                    cell.className = `cell ${type}`;
+                    cell.dataset.r = r;
+                    cell.dataset.c = c;
+
+                    // 鼠标事件
+                    cell.addEventListener("mousedown", () => {
+                        isMouseDown = true;
+                        applyTool(r, c, cell);
+                    });
+                    cell.addEventListener("mouseenter", () => {
+                        hoverInfoEl.innerText = `悬停坐标: Row ${rows[r]}, Column ${columns[c]} | 类型: ${gridData[r][c]}`;
+                        if (isMouseDown) {
+                            applyTool(r, c, cell);
+                        }
+                    });
+
+                    gridEl.appendChild(cell);
+                }
+
+                gridEl.appendChild(createAxisCell(rows[r])); // 右标头
+            }
+
+            // 3. 底标头行 (Bottom Axis)
+            gridEl.appendChild(createAxisCell(""));
+            columns.forEach(col => gridEl.appendChild(createAxisCell(col)));
+            gridEl.appendChild(createAxisCell(""));
+
+            updateStats();
+        }
+
+        function createAxisCell(text) {
+            const cell = document.createElement("div");
+            cell.className = "cell axis";
+            cell.innerText = text;
+            return cell;
+        }
+
+        document.addEventListener("mouseup", () => isMouseDown = false);
+
+        // 单触控拖拽涂色支持（仅单指触控单元格时生效，双指自动放行给视图缩放平移）
+        gridEl.addEventListener("touchmove", (e) => {
+            if (e.touches.length === 1) {
+                const touch = e.touches[0];
+                const target = document.elementFromPoint(touch.clientX, touch.clientY);
+                if (target && target.classList.contains("cell") && !target.classList.contains("axis")) {
+                    const r = parseInt(target.dataset.r);
+                    const c = parseInt(target.dataset.c);
+                    if (!isNaN(r) && !isNaN(c)) {
+                        applyTool(r, c, target);
+                    }
+                }
+            }
+        });
+
+        function applyTool(r, c, cellEl) {
+            gridData[r][c] = activeTool;
+            cellEl.className = `cell ${activeTool}`;
+            updateStats();
+        }
+
+        function updateStats() {
+            let active = 0;
+            for (let r = 0; r < 56; r++) {
+                for (let c = 0; c < 56; c++) {
+                    if (gridData[r][c] !== "outside") active++;
+                }
+            }
+            activeCountEl.innerText = active;
+        }
+
+        // 工具选择
+        document.querySelectorAll(".tool-btn").forEach(btn => {
+            btn.addEventListener("click", () => {
+                document.querySelectorAll(".tool-btn").forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+                activeTool = btn.dataset.type;
+            });
+        });
+
+        // 重置
+        document.getElementById("resetBtn").addEventListener("click", () => {
+            if (confirm("确定重置为初始填充布局吗？")) {
+                initGridData();
+                renderGrid();
+            }
+        });
+
+        // 导出 JSON
+        document.getElementById("exportBtn").addEventListener("click", () => {
+            const elements = [];
+            let totalActive = 0;
+
+            for (let r = 0; r < 56; r++) {
+                for (let c = 0; c < 56; c++) {
+                    const type = gridData[r][c];
+                    if (type !== "outside") {
+                        totalActive++;
+                        elements.push({
+                            row: rows[r],
+                            column: columns[c],
+                            grid_y: r,
+                            grid_x: c,
+                            channel_type: type
+                        });
+                    }
+                }
+            }
+
+            const exportData = {
+                reactor: "RBMK-1000",
+                lattice_pitch_mm: 250,
+                total_active_channels: totalActive,
+                channels: elements
+            };
+
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", "rbmk1000_core_layout.json");
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+        });
+
+        // 导入 JSON
+        const importInput = document.getElementById("importInput");
+        document.getElementById("importBtn").addEventListener("click", () => importInput.click());
+
+        importInput.addEventListener("change", (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                try {
+                    const json = JSON.parse(evt.target.result);
+                    for (let r = 0; r < 56; r++) gridData[r].fill("outside");
+                    
+                    const channels = json.channels || json.elements || [];
+                    channels.forEach(ch => {
+                        gridData[ch.grid_y][ch.grid_x] = ch.channel_type || ch.type;
+                    });
+                    
+                    renderGrid();
+                    alert("JSON 布局导入成功！");
+                } catch (err) {
+                    alert("导入失败：JSON 格式不正确。");
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        renderGrid();
+    </script>
+</body>
+</html>
