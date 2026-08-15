@@ -354,12 +354,22 @@
       <button class="btn-sim" id="btnResetView" style="margin-left:auto;">重置视角</button>
     </div>
     <div style="padding: 6px; background:var(--panel-dark); border-top:1px solid var(--panel-border);">
-      <input type="file" id="jsonInput" style="display:none" accept=".json" />
-      <div id="dropZone" style="font-size:11px; text-align:center; color:var(--text-muted); cursor:pointer; border:1px dashed #556257; padding:4px;">
-        点击或拖拽导入自定义 RBMK 堆芯 JSON 配置
-      </div>
+  <input type="file" id="jsonInput" style="display:none" accept=".json" />
+  <div style="display:flex; gap:6px; align-items:stretch;">
+    <div id="dropZone" style="flex:1; font-size:11px; text-align:center; color:var(--text-muted); cursor:pointer; border:1px dashed #556257; padding:4px;">
+      点击或拖拽导入自定义 RBMK 堆芯 JSON 配置
     </div>
+    <a href="../tool.html" style="flex:0 0 auto; font-size:11px; color:var(--text-muted); text-decoration:none; border:1px dashed #556257; padding:4px 12px; display:flex; align-items:center; white-space:nowrap;">
+      绘制工具
+    </a>
   </div>
+</div>
+</div>
+
+
+
+
+
 
   <!-- 中间：SKALA 警报与采样仪表盘 (固定 560px) -->
   <div class="panel">
